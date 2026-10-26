@@ -1,6 +1,7 @@
 # Windows launchers need CRLF; the shell launchers and scripts need LF.
 *.cmd            text eol=crlf
 *.sh             text eol=lf
+audio-editor     text eol=lf
 battle-editor    text eol=lf
 battle-logic     text eol=lf
 battle-structure text eol=lf

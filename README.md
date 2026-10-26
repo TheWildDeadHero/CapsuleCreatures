@@ -34,7 +34,7 @@ Run them from anywhere; they find the submodules beside themselves.
 ./studio [project.json]    # the Studio, every editor in one window
 ./map-editor world.json    # one editor on its own (also scene-editor, battle-editor, battle-structure,
                            #   battle-logic, encounter-editor, event-editor, object-editor, location-editor,
-                           #   script-editor, project-settings)
+                           #   script-editor, project-settings, audio-editor)
 ./capsule-studio --help    # the command-line tools
 ./build [PRESET] [--test]  # the engine with a CMake preset (default desktop-debug), optionally its tests
 ./check                    # the engine's and the toolkit's static checks (principles, style, code maps)
