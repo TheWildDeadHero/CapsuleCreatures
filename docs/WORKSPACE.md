@@ -24,7 +24,6 @@ reference clone by hand.
    CapsuleCreatures_Pret_Importer/       and CapsuleCreatures_Pret_Importer-work/
       ref_submodules/                    the pret decompilation clones (submodules, read only)
       assets-imported/ .local/ build*/   git-ignored: imported content, the legal acknowledgment, builds
-   CapsuleCreatures_Tileset_Builder/     and CapsuleCreatures_Tileset_Builder-work/
    mgba/ DEPRECATED_REFERENCE/ ProjectHeliodor/ (resources)   outside every repository
 ```
 
@@ -34,10 +33,9 @@ reference clone by hand.
 |---|---|---|---|
 | `CapsuleCreatures` | public | 0 | this umbrella: `engine/`, `toolkit/`, the launchers, this document |
 | `CapsuleCreatures_Engine` | public | 0 | the engine; `submodules/libgba`; no decompilation, no game content |
-| `CapsuleCreatures_Toolkit` | public | 0 | the studio and editors, the installers, `toolkit/env.py` (the one Python environment) |
+| `CapsuleCreatures_Toolkit` | public | 0 | the studio and editors (including the tileset builder, D-11, planned: `docs/TILESET_BUILDER.md`), the installers, `toolkit/env.py` (the one Python environment) |
 | `CapsuleCreatures_PocketProject` | private | 1 and 3 | `rules/` (tier 1: the Gen-3 reference rules, invented content) beside garnet's proprietary game data and text (tier 3), the framework and its studio extensions |
 | `CapsuleCreatures_Pret_Importer` | private | 3 | the pret importer and the Emerald target; the decompilation clones as its `ref_submodules/` |
-| `CapsuleCreatures_Tileset_Builder` | private | — | the tileset builder tool (D-11), not written yet |
 
 Nothing from a private repository is ever copied into a public one. Never
 committed anywhere: `assets-imported/`, `.local/`, build folders, `.venv`, the
