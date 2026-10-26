@@ -1,0 +1,34 @@
+#!/bin/sh
+# Builds the engine with one of its CMake presets (engine/CMakePresets.json; build folder engine/build/<preset>),
+# then, with --test, runs that preset's tests.
+. "$(dirname "$0")/scripts/common.sh"
+## The preset when none is given.
+default_preset=desktop-debug
+preset=""
+run_tests=0
+for arg in "$@"; do
+   case "$arg" in
+      -h|--help)
+         echo "usage: ./build [PRESET] [--test]"
+         echo "Configures and builds engine/ with a CMake preset (default: $default_preset); --test runs its ctest"
+         echo "preset afterwards (desktop-debug, windows-debug, headless and big-endian-check have one)."
+         echo "Presets: desktop-debug desktop-release windows-debug windows-release headless big-endian-check"
+         echo "         gba-debug gba-release dc-debug dc-release"
+         exit 0
+         ;;
+      --test) run_tests=1 ;;
+      -*)
+         echo "error: unknown option: $arg (try --help)" >&2
+         exit 2
+         ;;
+      *) preset=$arg ;;
+   esac
+done
+need_submodule engine CMakePresets.json
+preset=${preset:-$default_preset}
+cd "$engine" || exit 1
+cmake --preset "$preset" || exit 1
+cmake --build --preset "$preset" || exit 1
+if [ "$run_tests" -eq 1 ]; then
+   ctest --preset "$preset" || exit 1
+fi

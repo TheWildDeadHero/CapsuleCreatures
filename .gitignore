@@ -1,0 +1,25 @@
+# CapsuleCreatures umbrella: never committed (D-37). engine/ and toolkit/ are submodules with their own ignores.
+
+# Builds
+build/
+build-*/
+build_*/
+cmake-build-*/
+
+# Python environments and caches
+.venv/
+__pycache__/
+*.pyc
+
+# Imported third-party content, local state, databases and scratch (tier rules, D-3 / D-29)
+assets-imported/
+.local/
+*.sqlite
+_to_delete/
+
+# Editor state and emulator output
+/.cache/
+*.swp
+.DS_Store
+*.sav
+*.ss[0-9]
