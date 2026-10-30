@@ -1,0 +1,86 @@
+# Checks the umbrella on every push and pull request (D-40 RC): checks out engine/ and toolkit/ at the commits
+# this repository pins (recursively, so the engine's submodules/libgba comes too) and runs the `check` launcher:
+# the engine's principle, style and code map checks and the toolkit's style and code map checks; then the tier-0
+# word check over all three repositories. The builds and the unit tests run in the engine's and the toolkit's own
+# workflows; the one build here (new-game, D-40 RG) needs both: a game made from each template by the toolkit's
+# `capsule-studio new` builds as a GBA ROM with `./build gba-release --game`, nothing added, and so does a sample
+# project copied by `capsule-studio sample copy` (D-40 RP).
+# Actions are pinned to full commit SHAs; the comment names the release tag.
+name: check
+
+on:
+   push:
+   pull_request:
+   workflow_dispatch:
+
+concurrency:
+   group: ${{ github.workflow }}-${{ github.ref }}
+   cancel-in-progress: true
+
+permissions:
+   contents: read
+
+jobs:
+   check:
+      runs-on: ubuntu-24.04
+      env:
+         PYTHONDONTWRITEBYTECODE: "1"
+      steps:
+         - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+           with:
+              submodules: recursive
+         - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97   # v7.0.0
+           with:
+              python-version: "3.10"
+         - name: Pinned submodules
+           run: git submodule status --recursive
+         - name: Static checks (./check)
+           run: ./check
+         # Tier 0 (D-40): no file of the three repositories (their .github folders included) names the outside
+         # reference project, its function names, the franchise or the classic games' titles and region. The words
+         # are salted digests (engine/tools/ci/terms/reference.sha256); letters tokens find them inside identifiers,
+         # word tokens as whole underscore names. submodules/libgba is outside code and is left out.
+         - name: Tier-0 words (hashed list, all three repositories)
+           run: |
+              for tokens in letters word; do
+                 python3 engine/tools/ci/term_check.py check --list engine/tools/ci/terms/reference.sha256 \
+                    --tokens "$tokens" --exclude-dir .git --exclude-dir terms --exclude-dir __pycache__ \
+                    --exclude-dir submodules .
+              done
+
+   new-game:
+      runs-on: ubuntu-24.04
+      # devkitPro's own image (devkitARM, libgba, gbafix under /opt/devkitpro; DEVKITPRO is set in it).
+      container: devkitpro/devkitarm:latest
+      defaults:
+         run:
+            shell: bash
+      env:
+         PYTHONDONTWRITEBYTECODE: "1"
+      steps:
+         # git before checkout, so actions/checkout clones the submodules instead of downloading an archive.
+         - name: Install git and Python
+           run: |
+              apt-get update
+              apt-get install -y --no-install-recommends git ca-certificates python3
+         - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+           with:
+              submodules: recursive
+         # The image's CMake follows its Debian release; the presets need 3.24 or later.
+         - uses: lukka/get-cmake@a89e43e22a96abafcd7a62db652a65ecd33052c9   # v4.4.4
+         # The command line's core needs only the standard library, so no toolkit environment is made.
+         - name: New games from the Starter and Blank templates, built as GBA ROMs
+           run: |
+              for template in starter blank; do
+                 PYTHONPATH=toolkit/editor python3 -m capsule_studio.cli new "new_games/$template" --template "$template"
+                 ./build gba-release --game "new_games/$template"
+                 test -f "new_games/$template/build/gba-release/capsule_$template.gba"
+              done
+         # D-40 RP: a sample project copied out of the engine stands alone and builds as a game of its own (the
+         # Starter Battle: the smaller one; the toolkit's and the engine's tests check both samples' copies).
+         - name: The Starter Battle sample copied as a game, built as a GBA ROM
+           run: |
+              PYTHONPATH=toolkit/editor python3 -m capsule_studio.cli sample copy starter_battle new_games/battles
+              PYTHONPATH=toolkit/editor python3 -m capsule_studio.cli sample check new_games/battles
+              ./build gba-release --game new_games/battles
+              test -f new_games/battles/build/gba-release/capsule_battles.gba

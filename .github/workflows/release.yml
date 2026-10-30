@@ -1,0 +1,336 @@
+# Builds a release's downloads and attaches them to a draft GitHub release (D-40 RC).
+#
+# Lives in the umbrella because a release is the umbrella commit: it pins engine/ and toolkit/, so one tag here
+# names exactly which engine and toolkit ship. The tag is the D-10 calendar version, YYYY.MM.DD.MMMM (UTC date,
+# minutes since 00:00, zero-padded), and must also be on the pinned engine and toolkit commits (RV tags all three
+# repositories, the submodules first).
+#
+#   version          checks the tag (.github/scripts/check_version_tag.py, the toolkit's own rule) and that the
+#                    engine and toolkit carry the same tag at the pinned commits; a malformed tag stops here
+#   sample-gba       the samples' release ROMs (header, gbafix and D-5 cartridge size checked), in devkitPro's
+#                    devkitARM container
+#   sample-linux     the samples' Linux x86_64 programs, built in the manylinux_2_28 container (glibc 2.28, GCC from
+#                    gcc-toolset) so they run on every glibc 2.28+ distribution, C++ runtime linked in
+#   sample-desktop   the samples' Windows x64 programs (MinGW-w64, MSYS2 UCRT64; GUI subsystem, no DLLs) and macOS
+#                    universal apps (arm64 + x86_64; .app bundles with an icon, signed ad hoc, not notarised)
+#                    Every download carries README.txt (.github/release/SAMPLES_README.txt), the licence and the
+#                    notices (.github/scripts/copy_notices.sh; Windows adds winpthreads' COPYING);
+#                    .github/scripts/package_sample.py puts it together and checks what goes in.
+#   studio-bundles   RI's studio-bundles.yml: the prebuilt studio bundles (a failed bundle does not stop the draft)
+#   publish          creates the draft release (or updates the draft on a re-run) with every download and SHA256SUMS
+#
+# A manual run (workflow_dispatch) builds everything from the chosen branch as a dry run: it checks the version
+# given, keeps the downloads as workflow artifacts and publishes nothing.
+# Actions are pinned to full commit SHAs; the comment names the release tag.
+name: release
+
+on:
+   push:
+      # Every tag that starts with a digit runs, so a malformed version tag fails visibly in `version` instead of
+      # being ignored; anything else (a branch-like tag, v-prefixed) is not a release tag.
+      tags: ["[0-9]*"]
+   workflow_dispatch:
+      inputs:
+         version:
+            description: "Dry run: the version to check and to name the downloads with (YYYY.MM.DD.MMMM)"
+            required: true
+            type: string
+
+concurrency:
+   group: release-${{ github.ref }}
+   cancel-in-progress: false
+
+permissions:
+   contents: read
+
+env:
+   PYTHONDONTWRITEBYTECODE: "1"
+   # The sample programs (D-40 RS: the Starter sample's battles, engine apps/starter_battle, and the overworld's map
+   # sandbox, apps/sandbox_map), space-separated, and the name their downloads carry.
+   SAMPLE_TARGETS: capsule_starter_battle capsule_sandbox_map
+   SAMPLE_NAME: capsule-samples
+
+jobs:
+   version:
+      runs-on: ubuntu-24.04
+      outputs:
+         version: ${{ steps.tag.outputs.version }}
+         dry_run: ${{ steps.mode.outputs.dry_run }}
+      steps:
+         - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+           with:
+              submodules: true
+         - name: Mode
+           id: mode
+           run: |
+              if [ "$GITHUB_EVENT_NAME" = push ]; then
+                 echo "dry_run=false" >> "$GITHUB_OUTPUT"
+              else
+                 echo "dry_run=true" >> "$GITHUB_OUTPUT"
+              fi
+         - name: Check the version format (D-10)
+           id: tag
+           env:
+              VERSION_TEXT: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+           run: python3 .github/scripts/check_version_tag.py "$VERSION_TEXT" --toolkit toolkit
+         - name: Check the submodules carry the tag at the pinned commits
+           env:
+              VERSION: ${{ steps.tag.outputs.version }}
+              DRY_RUN: ${{ steps.mode.outputs.dry_run }}
+           run: |
+              status=0
+              for sub in engine toolkit; do
+                 pinned=$(git rev-parse "HEAD:$sub")
+                 url=$(git config -f .gitmodules "submodule.$sub.url")
+                 # An annotated tag lists its commit as <tag>^{}; a lightweight tag only as <tag>.
+                 refs=$(git ls-remote --tags "$url" "refs/tags/$VERSION" "refs/tags/$VERSION^{}")
+                 tagged=$(echo "$refs" | awk '/\^\{\}$/ { print $1; found = 1 } END { if (!found) exit 1 }') ||
+                    tagged=$(echo "$refs" | awk 'NR == 1 { print $1 }')
+                 echo "$sub: pinned ${pinned:0:12}, tag $VERSION at ${tagged:0:12}"
+                 if [ "$tagged" != "$pinned" ]; then
+                    if [ "$DRY_RUN" = true ]; then
+                       echo "::warning::$sub: tag $VERSION is not on the pinned commit $pinned (dry run: not enforced)"
+                    else
+                       echo "::error::$sub: tag $VERSION must be on the pinned commit $pinned"
+                       status=1
+                    fi
+                 fi
+              done
+              exit "$status"
+
+   sample-gba:
+      needs: version
+      runs-on: ubuntu-24.04
+      # devkitPro's own image (devkitARM, libgba, gbafix under /opt/devkitpro; DEVKITPRO is set in it).
+      container: devkitpro/devkitarm:latest
+      defaults:
+         run:
+            shell: bash
+      env:
+         VERSION: ${{ needs.version.outputs.version }}
+      steps:
+         # git before checkout, so actions/checkout clones the submodules instead of downloading an archive.
+         - name: Install git and Python
+           run: |
+              apt-get update
+              apt-get install -y --no-install-recommends git ca-certificates python3
+         - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+           with:
+              submodules: recursive
+         # The image's CMake follows its Debian release; the presets need 3.24 or later.
+         - uses: lukka/get-cmake@a89e43e22a96abafcd7a62db652a65ecd33052c9   # v4.4.4
+         # The build runs gbafix on each ROM and fails when one outgrows its cartridge target (rom.cart_mb, D-5).
+         - name: Release ROMs
+           working-directory: engine
+           run: |
+              read -ra targets <<< "$SAMPLE_TARGETS"
+              cmake --preset gba-release
+              cmake --build --preset gba-release --target "${targets[@]}"
+         - name: Package (checks each header and size again)
+           run: |
+              read -ra targets <<< "$SAMPLE_TARGETS"
+              out="$SAMPLE_NAME-$VERSION-gba"
+              bash .github/scripts/copy_notices.sh "dist/$out" gba
+              python3 .github/scripts/package_sample.py --platform gba --build-dir engine/build/gba-release \
+                 --version "$VERSION" --out "dist/$out" "${targets[@]/#/--target=}"
+              (cd dist && cmake -E tar cf "$out.zip" --format=zip "$out")
+         - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+           with:
+              name: sample-gba
+              path: dist/*.zip
+              if-no-files-found: error
+
+   # Linux: built against an old glibc so one program runs on every current distribution. The manylinux_2_28 image
+   # (AlmaLinux 8: glibc 2.28, a current GCC from gcc-toolset, CMake, Python 3.10+) is the baseline Python wheels
+   # use; glibc 2.28 is also what the actions' own Node runtime needs inside a container. Built on ubuntu-24.04
+   # itself, the programs would need glibc 2.38 (Ubuntu 23.10, Debian 13 or newer).
+   sample-linux:
+      needs: version
+      runs-on: ubuntu-24.04
+      container: quay.io/pypa/manylinux_2_28_x86_64:latest
+      defaults:
+         run:
+            shell: bash
+      env:
+         VERSION: ${{ needs.version.outputs.version }}
+         # the image's Python 3.12 first on PATH (the engine's generators need 3.10 or later)
+         PYTHON_DIR: /opt/python/cp312-cp312/bin
+      steps:
+         # SDL2 only loads these backends at run time (dlopen), but needs their headers to build them in.
+         # PowerTools holds some of the -devel packages; EL8 has no libdecor (SDL then draws no Wayland title bar
+         # of its own and prefers X11 / XWayland, as SDL2 does by default).
+         - name: Install SDL2's video and audio backend headers
+           run: |
+              dnf install -y dnf-plugins-core
+              dnf config-manager --set-enabled powertools
+              dnf install -y --setopt=install_weak_deps=False \
+                 libX11-devel libXext-devel libXrandr-devel libXcursor-devel libXi-devel libXScrnSaver-devel \
+                 libXfixes-devel wayland-devel wayland-protocols-devel libxkbcommon-devel mesa-libEGL-devel \
+                 mesa-libGL-devel alsa-lib-devel pulseaudio-libs-devel pipewire-devel dbus-devel systemd-devel
+              echo "$PYTHON_DIR" >> "$GITHUB_PATH"
+         - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+           with:
+              submodules: recursive
+         - name: Toolchain versions
+           run: |
+              gcc --version | head -n 1
+              ldd --version | head -n 1
+              cmake --version | head -n 1
+              python3 --version
+         # The C++ runtime is linked in (libstdc++ and libgcc are not on every system in a new enough version).
+         - name: Release programs
+           working-directory: engine
+           run: |
+              read -ra targets <<< "$SAMPLE_TARGETS"
+              cmake --preset desktop-release -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
+              cmake --build --preset desktop-release --target "${targets[@]}"
+         # SDL leaves out any backend whose headers were missing at configure time; a shipped Linux program
+         # without PipeWire / PulseAudio / ALSA would have no sound.
+         - name: Check SDL2's Linux backends
+           run: bash engine/.github/scripts/check_sdl_backends.sh engine/build/desktop-release
+         - name: Package (checks the libraries and the glibc baseline)
+           run: |
+              read -ra targets <<< "$SAMPLE_TARGETS"
+              out="$SAMPLE_NAME-$VERSION-linux-x86_64"
+              bash .github/scripts/copy_notices.sh "dist/$out" linux-x86_64
+              python3 .github/scripts/package_sample.py --platform linux-x86_64 \
+                 --build-dir engine/build/desktop-release --version "$VERSION" --out "dist/$out" \
+                 --glibc-max 2.28 "${targets[@]/#/--target=}"
+              (cd dist && cmake -E tar czf "$out.tar.gz" "$out")
+         - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+           with:
+              name: sample-linux-x86_64
+              path: dist/*.tar.gz
+              if-no-files-found: error
+
+   sample-desktop:
+      needs: version
+      strategy:
+         fail-fast: false
+         matrix:
+            include:
+               - platform: windows-x64
+                 os: windows-2025
+                 shell: msys2 {0}
+                 preset: windows-release
+               - platform: macos-universal
+                 os: macos-15
+                 shell: bash
+                 preset: desktop-release
+      runs-on: ${{ matrix.os }}
+      defaults:
+         run:
+            shell: ${{ matrix.shell }}
+      env:
+         VERSION: ${{ needs.version.outputs.version }}
+      steps:
+         - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+           with:
+              submodules: recursive
+         - name: MSYS2 UCRT64 (Windows)
+           if: runner.os == 'Windows'
+           uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e   # v2.33.0
+           with:
+              msystem: UCRT64
+              update: true
+              install: >-
+                 mingw-w64-ucrt-x86_64-gcc
+                 mingw-w64-ucrt-x86_64-cmake
+                 mingw-w64-ucrt-x86_64-ninja
+                 mingw-w64-ucrt-x86_64-python
+         - name: Release programs
+           working-directory: engine
+           run: |
+              read -ra targets <<< "$SAMPLE_TARGETS"
+              cmake --preset ${{ matrix.preset }}
+              cmake --build --preset ${{ matrix.preset }} --target "${targets[@]}"
+         - name: Check universal binaries (macOS)
+           if: runner.os == 'macOS'
+           run: |
+              read -ra targets <<< "$SAMPLE_TARGETS"
+              for target in "${targets[@]}"; do
+                 archs=$(lipo -archs "engine/build/desktop-release/$target")
+                 echo "$target: $archs"
+                 case " $archs " in *" arm64 "*) ;; *) echo "::error::$target: missing arm64"; exit 1 ;; esac
+                 case " $archs " in *" x86_64 "*) ;; *) echo "::error::$target: missing x86_64"; exit 1 ;; esac
+                 # the deployment target each slice was built for (LC_BUILD_VERSION / LC_VERSION_MIN_MACOSX)
+                 vtool -show-build "engine/build/desktop-release/$target" | grep -E "minos|version" || true
+              done
+         # Windows: each .exe is checked for the GUI subsystem and Windows-only DLL imports; macOS: each program
+         # becomes "<Name>.app" (icon, Info.plist), signed ad hoc, and is zipped with zip -y (keeps symbolic links as
+         # links; the ad hoc signature lives in the executable and _CodeSignature/, not in extended attributes).
+         - name: Package
+           run: |
+              read -ra targets <<< "$SAMPLE_TARGETS"
+              out="$SAMPLE_NAME-$VERSION-${{ matrix.platform }}"
+              py=$(command -v python3 || command -v python)
+              # first, so package_sample.py can check the Windows download's notices (the MSYS2 shell's
+              # MINGW_PREFIX tells copy_notices.sh where winpthreads' COPYING is)
+              bash .github/scripts/copy_notices.sh "dist/$out" ${{ matrix.platform }}
+              "$py" .github/scripts/package_sample.py --platform ${{ matrix.platform }} \
+                 --build-dir "engine/build/${{ matrix.preset }}" --version "$VERSION" --out "dist/$out" \
+                 --owner "${{ github.repository_owner }}" "${targets[@]/#/--target=}"
+              cd dist
+              if [ "$RUNNER_OS" = macOS ]; then
+                 zip -q -r -y "$out.zip" "$out"
+              else
+                 cmake -E tar cf "$out.zip" --format=zip "$out"
+              fi
+         - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+           with:
+              name: sample-${{ matrix.platform }}
+              path: dist/*.zip
+              if-no-files-found: error
+
+   # RI's slot: the prebuilt studio bundles (inputs, outputs and artifact names: studio-bundles.yml).
+   studio-bundles:
+      needs: version
+      uses: ./.github/workflows/studio-bundles.yml
+      with:
+         version: ${{ needs.version.outputs.version }}
+         umbrella_sha: ${{ github.sha }}
+
+   publish:
+      needs: [version, sample-gba, sample-linux, sample-desktop, studio-bundles]
+      if: needs.version.outputs.dry_run == 'false'
+      runs-on: ubuntu-24.04
+      permissions:
+         contents: write
+      env:
+         VERSION: ${{ needs.version.outputs.version }}
+         GH_TOKEN: ${{ github.token }}
+      steps:
+         - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+         - name: Sample downloads
+           uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c   # v8.0.1
+           with:
+              pattern: sample-*
+              path: dist
+              merge-multiple: true
+         - name: Studio bundles
+           if: needs.studio-bundles.outputs.ready == 'true'
+           uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c   # v8.0.1
+           with:
+              pattern: studio-*
+              path: dist
+              merge-multiple: true
+         - name: Checksums
+           working-directory: dist
+           run: |
+              sha256sum -- * > SHA256SUMS
+              cat SHA256SUMS
+         - name: Draft release
+           run: |
+              # RV writes the notes as docs/releases/<version>.md; until then the draft says they are to come.
+              notes="docs/releases/$VERSION.md"
+              if [ ! -f "$notes" ]; then
+                 notes="$RUNNER_TEMP/notes.md"
+                 echo "CapsuleCreatures $VERSION. Release notes to follow." > "$notes"
+              fi
+              # A re-run updates the existing draft instead of failing on the existing tag's release.
+              if gh release view "$VERSION" > /dev/null 2>&1; then
+                 gh release upload "$VERSION" dist/* --clobber
+              else
+                 gh release create "$VERSION" dist/* --draft --verify-tag --title "CapsuleCreatures $VERSION" \
+                    --notes-file "$notes"
+              fi
