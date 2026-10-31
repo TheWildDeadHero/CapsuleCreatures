@@ -1,0 +1,5 @@
+#!/bin/sh
+# Starts the encounter editor from the toolkit submodule (toolkit/toolkit/env.py run encounter-editor).
+# The first run sets up the toolkit's Python environment (toolkit/.venv).
+. "$(dirname "$0")/scripts/common.sh"
+toolkit_run encounter-editor "$@"

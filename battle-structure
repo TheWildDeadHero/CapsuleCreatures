@@ -1,0 +1,5 @@
+#!/bin/sh
+# Starts the battle editor on its Structure pages from the toolkit submodule (toolkit/toolkit/env.py run battle-structure).
+# The first run sets up the toolkit's Python environment (toolkit/.venv).
+. "$(dirname "$0")/scripts/common.sh"
+toolkit_run battle-structure "$@"

@@ -1,0 +1,6 @@
+[submodule "engine"]
+	path = engine
+	url = https://github.com/TheWildDeadHero/CapsuleCreatures_Engine.git
+[submodule "toolkit"]
+	path = toolkit
+	url = https://github.com/TheWildDeadHero/CapsuleCreatures_Toolkit.git

@@ -1,0 +1,43 @@
+#!/bin/sh
+# Runs the static checks of both submodules: the engine's principle, style and code map checks (engine/tools/ci/)
+# and the toolkit's style and code map checks (toolkit/toolkit/). The tests run in ./build PRESET --test.
+. "$(dirname "$0")/scripts/common.sh"
+case "${1:-}" in
+   -h|--help)
+      echo "usage: ./check"
+      echo "Engine: tools/ci/check_principles.sh, tools/ci/check_style.py, tools/ci/code_map.py check."
+      echo "Toolkit: editor/tests/test_style.py (toolkit/check_style.py), toolkit/code_map.py check."
+      echo "Python: the toolkit environment (toolkit/.venv) when it exists, else python3."
+      exit 0
+      ;;
+   "") ;;
+   *)
+      echo "error: unknown argument: $1 (try --help)" >&2
+      exit 2
+      ;;
+esac
+need_submodule engine tools/ci/check_principles.sh
+need_submodule toolkit toolkit/check_style.py
+py=$(check_python) || exit 1
+status=0
+# Each check runs in its repository's root, as its own CI does.
+step() {
+   label=$1
+   shift
+   echo "== $label"
+   if ! "$@"; then
+      echo "FAILED: $label" >&2
+      status=1
+   fi
+}
+step "engine principles" bash "$engine/tools/ci/check_principles.sh"
+step "engine style" "$py" "$engine/tools/ci/check_style.py" "$engine/src" "$engine/include" "$engine/apps" \
+   "$engine/tests" "$engine/tools" "$engine/cmake" "$engine/CMakeLists.txt"
+step "engine code map" "$py" "$engine/tools/ci/code_map.py" check --root "$engine"
+# The toolkit checks what its own style test checks (editor/, toolkit/, install/ and its root launchers).
+step "toolkit style" "$py" "$toolkit/editor/tests/test_style.py"
+step "toolkit code map" "$py" "$toolkit/toolkit/code_map.py" check --root "$toolkit"
+if [ "$status" -eq 0 ]; then
+   echo "all checks passed"
+fi
+exit "$status"

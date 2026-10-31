@@ -1,0 +1,5 @@
+#!/bin/sh
+# Starts the scene editor from the toolkit submodule (toolkit/toolkit/env.py run scene-editor).
+# The first run sets up the toolkit's Python environment (toolkit/.venv).
+. "$(dirname "$0")/scripts/common.sh"
+toolkit_run scene-editor "$@"

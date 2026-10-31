@@ -1,0 +1,5 @@
+#!/bin/sh
+# Starts the project settings window from the toolkit submodule (toolkit/toolkit/env.py run project-settings).
+# The first run sets up the toolkit's Python environment (toolkit/.venv).
+. "$(dirname "$0")/scripts/common.sh"
+toolkit_run project-settings "$@"
