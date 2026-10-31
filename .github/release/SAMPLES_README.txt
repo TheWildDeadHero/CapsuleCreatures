@@ -63,8 +63,8 @@ right-click > Properties > Permissions > "Allow executing file as program", or r
 
 The programs need an x86_64 Linux with glibc 2.28 or newer (Debian 10, Ubuntu 20.04, Fedora 29, RHEL 8 or any
 current rolling distribution such as Arch, CachyOS or openSUSE Tumbleweed) and an X11 or Wayland desktop. Sound
-plays through PipeWire, PulseAudio or ALSA, whichever is there. Nothing else needs installing: SDL2 and the C++
-runtime are built in.
+plays through PulseAudio or ALSA (on a PipeWire desktop, through its PulseAudio service, pipewire-pulse, which
+current distributions install with PipeWire). Nothing else needs installing: SDL2 and the C++ runtime are built in.
 @end
 @only windows-x64
 Unzip the download first (right-click > Extract All...), then double-click capsule_starter_battle.exe or
