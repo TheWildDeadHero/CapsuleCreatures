@@ -26,6 +26,10 @@ name: release
 
 on:
    push:
+      # A push to the release-candidate branch is a dry run (everything is built, nothing is published), so the
+      # downloads are proven before the release history is made; a manual run needs the workflow on the default
+      # branch.
+      branches: [release-candidate]
       # Every tag that starts with a digit runs, so a malformed version tag fails visibly in `version` instead of
       # being ignored; anything else (a branch-like tag, v-prefixed) is not a release tag.
       tags: ["[0-9]*"]
@@ -63,15 +67,20 @@ jobs:
          - name: Mode
            id: mode
            run: |
-              if [ "$GITHUB_EVENT_NAME" = push ]; then
+              if [ "$GITHUB_REF_TYPE" = tag ]; then
                  echo "dry_run=false" >> "$GITHUB_OUTPUT"
+                 echo "version=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
               else
                  echo "dry_run=true" >> "$GITHUB_OUTPUT"
+                 # A branch dry run names the downloads after the time it runs (UTC, D-10).
+                 echo "version=${INPUT_VERSION:-$(date -u +%Y.%m.%d.%H%M)}" >> "$GITHUB_OUTPUT"
               fi
+           env:
+              INPUT_VERSION: ${{ inputs.version }}
          - name: Check the version format (D-10)
            id: tag
            env:
-              VERSION_TEXT: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+              VERSION_TEXT: ${{ steps.mode.outputs.version }}
            run: python3 .github/scripts/check_version_tag.py "$VERSION_TEXT" --toolkit toolkit
          - name: Check the submodules carry the tag at the pinned commits
            env:
