@@ -1,0 +1,13 @@
+#!/bin/sh
+# Sets up this machine for CapsuleCreatures (GBA and desktop toolchains, the toolkit's Python environment): runs the
+# toolkit's installer, toolkit/install/install.sh, with the options given. The installer stays in the toolkit.
+. "$(dirname "$0")/scripts/common.sh"
+case "${1:-}" in
+   -h|--help)
+      echo "usage: ./setup [installer options]"
+      echo "Runs toolkit/install/install.sh (machine setup and the toolkit environment). Its options:"
+      echo
+      ;;
+esac
+need_submodule toolkit install/install.sh
+exec bash "$toolkit/install/install.sh" "$@"
