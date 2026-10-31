@@ -188,8 +188,8 @@ jobs:
                  libX11 libX11-xcb libxcb libXext libXrender libXi libSM libICE xcb-util xcb-util-image \
                  xcb-util-keysyms xcb-util-renderutil xcb-util-wm
               echo "container: $LINUX_IMAGE"
-              ldd --version | head -n 1
-              gcc --version | head -n 1
+              ldd --version | sed -n 1p
+              gcc --version | sed -n 1p
          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
            with:
               ref: ${{ inputs.umbrella_sha }}

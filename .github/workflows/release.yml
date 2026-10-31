@@ -182,9 +182,9 @@ jobs:
               submodules: recursive
          - name: Toolchain versions
            run: |
-              gcc --version | head -n 1
-              ldd --version | head -n 1
-              cmake --version | head -n 1
+              gcc --version | sed -n 1p
+              ldd --version | sed -n 1p
+              cmake --version | sed -n 1p
               python3 --version
          # The C++ runtime is linked in (libstdc++ and libgcc are not on every system in a new enough version).
          - name: Release programs
