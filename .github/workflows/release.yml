@@ -72,8 +72,13 @@ jobs:
                  echo "version=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
               else
                  echo "dry_run=true" >> "$GITHUB_OUTPUT"
-                 # A branch dry run names the downloads after the time it runs (UTC, D-10).
-                 echo "version=${INPUT_VERSION:-$(date -u +%Y.%m.%d.%H%M)}" >> "$GITHUB_OUTPUT"
+                 # A branch dry run names the downloads after the time it runs (UTC, D-10): the last field is the
+                 # minutes since 00:00, not the hour and minute (16:30 is 0990). One date call, so the day and
+                 # the minute come from the same instant.
+                 minutes_per_hour=60
+                 read -r day hour minute <<< "$(date -u '+%Y.%m.%d %H %M')"
+                 minutes=$(( 10#$hour * minutes_per_hour + 10#$minute ))   # 10#: "08" is not octal
+                 echo "version=${INPUT_VERSION:-$(printf '%s.%04d' "$day" "$minutes")}" >> "$GITHUB_OUTPUT"
               fi
            env:
               INPUT_VERSION: ${{ inputs.version }}
