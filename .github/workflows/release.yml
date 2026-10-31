@@ -195,7 +195,11 @@ jobs:
               cmake --build --preset desktop-release --target "${targets[@]}"
          # SDL leaves out any backend whose headers were missing at configure time; a shipped Linux program
          # without PipeWire / PulseAudio / ALSA would have no sound.
+         # EL8's PipeWire fails SDL 2.32's libpipewire-0.3 check, so the shipped Linux samples play through
+         # PulseAudio (served by pipewire-pulse on PipeWire desktops) or ALSA.
          - name: Check SDL2's Linux backends
+           env:
+              SDL_BACKENDS_OPTIONAL: SDL_AUDIO_DRIVER_PIPEWIRE
            run: bash engine/.github/scripts/check_sdl_backends.sh engine/build/desktop-release
          - name: Package (checks the libraries and the glibc baseline)
            run: |
